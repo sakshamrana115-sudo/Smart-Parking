@@ -3,163 +3,125 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 
-# --- CONFIGURATION ---
+# --- CONFIG ---
 DB_NAME = "parking_pro.db"
 TOTAL_SLOTS = 12
 HOURLY_RATE = 20
 
 st.set_page_config(page_title="Smart Parking Pro", layout="wide")
 
-# --- DATABASE LOGIC ---
+# --- DATABASE FUNCTIONS ---
+def run_query(query, params=(), fetch=False):
+    with sqlite3.connect(DB_NAME) as conn:
+        cur = conn.cursor()
+        cur.execute(query, params)
+        conn.commit()
+        return cur.fetchall() if fetch else None
+
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    # Table for Bookings
-    cur.execute('''CREATE TABLE IF NOT EXISTS bookings 
-                   (slot_no INTEGER PRIMARY KEY, owner_name TEXT, 
-                    vehicle_no TEXT, checkin_time TEXT)''')
-    # Table for Revenue History
-    cur.execute('''CREATE TABLE IF NOT EXISTS history 
-                   (id INTEGER PRIMARY KEY AUTOINCREMENT, slot_no INTEGER, 
-                    amount REAL, paid_at TEXT)''')
-    # Table for Admins (Nayi Table)
-    cur.execute('''CREATE TABLE IF NOT EXISTS admins 
-                   (username TEXT PRIMARY KEY, password TEXT)''')
-    
-    # Default admin agar koi nahi hai toh
-    cur.execute("SELECT COUNT(*) FROM admins")
-    if cur.fetchone()[0] == 0:
-        cur.execute("INSERT INTO admins VALUES (?, ?)", ("admin", "admin123"))
-        
-    conn.commit()
-    conn.close()
-
-def get_booked_slots():
-    conn = sqlite3.connect(DB_NAME)
-    df = pd.read_sql_query("SELECT * FROM bookings", conn)
-    conn.close()
-    return df
-
-def check_admin(u, p):
-    conn = sqlite3.connect(DB_NAME)
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM admins WHERE username=? AND password=?", (u, p))
-    result = cur.fetchone()
-    conn.close()
-    return result
+    run_query('''CREATE TABLE IF NOT EXISTS bookings 
+                 (slot_no INTEGER PRIMARY KEY, owner_name TEXT, vehicle_no TEXT, checkin_time TEXT)''')
+    run_query('''CREATE TABLE IF NOT EXISTS history 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, slot_no INTEGER, amount REAL, paid_at TEXT)''')
+    run_query('''CREATE TABLE IF NOT EXISTS admins (username TEXT PRIMARY KEY, password TEXT)''')
+    if not run_query("SELECT * FROM admins WHERE username='admin'", fetch=True):
+        run_query("INSERT INTO admins VALUES ('admin', 'admin123')")
 
 init_db()
 
 # --- SESSION STATE ---
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.role = None
-if 'booking_slot' not in st.session_state:
-    st.session_state.booking_slot = None
+for key, val in [('logged_in', False), ('role', None), ('booking_slot', None), ('current_user', None)]:
+    if key not in st.session_state: st.session_state[key] = val
 
-# --- LOGIN SCREEN ---
+# --- LOGIN ---
 if not st.session_state.logged_in:
     st.title("🔐 Smart Parking Login")
-    col1, col2 = st.columns(2)
-    with col1:
+    c1, c2 = st.columns(2)
+    with c1:
         st.info("### 👨‍💼 Admin Login")
-        admin_user = st.text_input("Username")
-        admin_pass = st.text_input("Password", type="password")
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
         if st.button("Login as Admin"):
-            if check_admin(admin_user, admin_pass):
-                st.session_state.logged_in = True
-                st.session_state.role = "admin"
-                st.session_state.current_user = admin_user
+            if run_query("SELECT * FROM admins WHERE username=? AND password=?", (u, p), fetch=True):
+                st.session_state.update({"logged_in": True, "role": "admin", "current_user": u})
                 st.rerun()
-            else:
-                st.error("Invalid Username or Password")
-    with col2:
+            else: st.error("Invalid Credentials")
+    with c2:
         st.success("### 🚗 User Access")
         if st.button("Enter as User"):
-            st.session_state.logged_in = True
-            st.session_state.role = "user"
+            st.session_state.update({"logged_in": True, "role": "user"})
             st.rerun()
     st.stop()
 
-# --- LOGOUT ---
+# --- SHARED UI ---
 if st.sidebar.button("🚪 Log Out"):
     st.session_state.clear()
     st.rerun()
 
+booked_df = pd.read_sql(f"SELECT * FROM bookings", sqlite3.connect(DB_NAME))
+booked_slots = booked_df['slot_no'].tolist()
+
 # ================= USER POV =================
 if st.session_state.role == "user":
-    st.title("🚗 Customer Booking Portal")
-    booked_df = get_booked_slots()
-    booked_slots = booked_df['slot_no'].tolist()
-    
+    st.title("🚗 Customer Portal")
     cols = st.columns(4)
     for i in range(1, TOTAL_SLOTS + 1):
-        with cols[(i - 1) % 4]:
-            if i in booked_slots:
-                st.error(f"Slot {i} \n\n OCCUPIED")
+        with cols[(i-1)%4]:
+            if i in booked_slots: st.error(f"Slot {i}\n\nOccupied")
             else:
-                st.success(f"Slot {i} \n\n AVAILABLE")
-                if st.button(f"Book Slot {i}", key=f"u_{i}"):
-                    st.session_state.booking_slot = i
+                st.success(f"Slot {i}\n\nAvailable")
+                if st.button(f"Book {i}", key=f"b{i}"): st.session_state.booking_slot = i
     
     if st.session_state.booking_slot:
-        with st.form("book_form"):
-            st.write(f"### Booking Slot {st.session_state.booking_slot}")
-            name = st.text_input("Name")
-            vno = st.text_input("Vehicle No").upper()
-            if st.form_submit_button("Confirm"):
-                conn = sqlite3.connect(DB_NAME)
-                conn.execute("INSERT INTO bookings VALUES (?,?,?,?)", 
-                             (st.session_state.booking_slot, name, vno, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                conn.commit()
-                conn.close()
+        with st.form("bk"):
+            name, vno = st.text_input("Name"), st.text_input("Vehicle").upper()
+            if st.form_submit_button("Confirm") and name and vno:
+                run_query("INSERT INTO bookings VALUES (?,?,?,?)", (st.session_state.booking_slot, name, vno, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                 st.session_state.booking_slot = None
                 st.rerun()
 
 # ================= ADMIN POV =================
-elif st.session_state.role == "admin":
-    st.sidebar.title(f"Welcome, {st.session_state.current_user}")
+else:
+    st.sidebar.title(f"Admin: {st.session_state.current_user}")
     menu = st.sidebar.radio("Menu", ["Monitor", "Billing", "Reports", "Manage Admins"])
 
     if menu == "Monitor":
-        st.title("📊 Real-Time Monitor")
-        booked_df = get_booked_slots()
-        booked_slots = booked_df['slot_no'].tolist()
+        st.title("📊 Live View")
         cols = st.columns(4)
         for i in range(1, TOTAL_SLOTS + 1):
-            with cols[(i - 1) % 4]:
+            with cols[(i-1)%4]:
                 if i in booked_slots:
-                    d = booked_df[booked_df['slot_no'] == i].iloc[0]
+                    d = booked_df[booked_df['slot_no']==i].iloc[0]
                     st.error(f"Slot {i}\n\n{d['vehicle_no']}")
-                else:
-                    st.success(f"Slot {i}\n\nEMPTY")
+                else: st.success(f"Slot {i}\n\nFree")
+
+    elif menu == "Billing":
+        st.title("💸 Checkout")
+        v = st.text_input("Search Vehicle").upper()
+        res = booked_df[booked_df['vehicle_no'].str.contains(v)] if v else None
+        if res is not None and not res.empty:
+            st.table(res)
+            if st.button("Process Exit"):
+                s_id = int(res['slot_no'].iloc[0])
+                entry = datetime.strptime(res['checkin_time'].iloc[0], "%Y-%m-%d %H:%M:%S")
+                hrs = max(1, (datetime.now() - entry).seconds // 3600)
+                run_query("DELETE FROM bookings WHERE slot_no=?", (s_id,))
+                run_query("INSERT INTO history (slot_no, amount, paid_at) VALUES (?,?,?)", (s_id, hrs*HOURLY_RATE, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                st.success(f"Bill: ₹{hrs*HOURLY_RATE}"); st.rerun()
 
     elif menu == "Manage Admins":
-        st.title("👥 Admin Management")
-        st.subheader("Create New Admin Account")
-        new_user = st.text_input("New Admin Username")
-        new_pass = st.text_input("New Admin Password", type="password")
-        
-        if st.button("Create Admin"):
-            if new_user and new_pass:
-                try:
-                    conn = sqlite3.connect(DB_NAME)
-                    cur = conn.cursor()
-                    cur.execute("INSERT INTO admins VALUES (?, ?)", (new_user, new_pass))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"Admin '{new_user}' created successfully!")
-                except:
-                    st.error("Username already exists!")
-            else:
-                st.warning("Please fill all fields.")
-        
-        st.divider()
-        st.subheader("Existing Admins")
-        conn = sqlite3.connect(DB_NAME)
-        admins_df = pd.read_sql_query("SELECT username FROM admins", conn)
-        st.table(admins_df)
-        conn.close()
+        st.title("👥 Admin Settings")
+        with st.form("new_ad"):
+            nu, np = st.text_input("New Username"), st.text_input("New Password", type="password")
+            if st.form_submit_button("Create Admin") and nu and np:
+                try: 
+                    run_query("INSERT INTO admins VALUES (?,?)", (nu, np))
+                    st.success("Admin Added!")
+                except: st.error("Exists!")
+        st.table(pd.read_sql("SELECT username FROM admins", sqlite3.connect(DB_NAME)))
 
-    # (Add your Billing and Reports logic here as per previous code)
-    
+    elif menu == "Reports":
+        st.title("📈 History")
+        dfh = pd.read_sql("SELECT * FROM history", sqlite3.connect(DB_NAME))
+        st.metric("Total Revenue", f"₹{dfh['amount'].sum() if not dfh.empty else 0}")
+        st.dataframe(dfh)
