@@ -1,61 +1,53 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, jsonify
 import sqlite3
-import qrcode
-import os
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = "secret_key_for_session"
 DB_NAME = "parking.db"
-TOTAL_SLOTS = 12
-PRICE_PER_HOUR = 20
 
-def db_query(query, params=(), fetch=False):
+def init_db():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    cur.execute(query, params)
-    data = cur.fetchall() if fetch else None
+    cur.execute('''CREATE TABLE IF NOT EXISTS bookings 
+                   (slot_no INTEGER PRIMARY KEY, owner_name TEXT, 
+                    vehicle_no TEXT, checkin_time TEXT)''')
     conn.commit()
     conn.close()
-    return data
 
 @app.route('/')
-def index():
-    if 'user' in session:
-        return redirect(url_for('dashboard'))
-    return render_template('login.html')
+def home():
+    return render_template('index.html')
 
-@app.route('/login', methods=['POST'])
-def login():
-    username = request.form['username']
-    password = request.form['password']
-    role = request.form['role']
-    
-    table = "admins" if role == "admin" else "users"
-    user = db_query(f"SELECT * FROM {table} WHERE username=? AND password=?", (username, password), fetch=True)
-    
-    if user:
-        session['user'] = username
-        session['role'] = role
-        return redirect(url_for('dashboard'))
-    else:
-        flash("Invalid Credentials")
-        return redirect(url_for('index'))
+# API: Saare slots ki information lene ke liye
+@app.route('/api/slots', methods=['GET'])
+def get_slots():
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM bookings")
+    rows = cur.fetchall()
+    booked_slots = {r[0]: {"owner": r[1], "vehicle": r[2], "time": r[3]} for r in rows}
+    conn.close()
+    return jsonify(booked_slots)
 
-@app.route('/dashboard')
-def dashboard():
-    if 'user' not in session:
-        return redirect(url_for('index'))
-    
-    booked_rows = db_query("SELECT slot_no FROM bookings", fetch=True)
-    booked_slots = [r[0] for r in booked_rows]
-    
-    return render_template('dashboard.html', total_slots=TOTAL_SLOTS, booked_slots=booked_slots)
+# API: New booking karne ke liye
+@app.route('/api/book', methods=['POST'])
+def book_slot():
+    data = request.json
+    slot_no = data['slot_no']
+    owner = data['owner']
+    vehicle = data['vehicle'].upper()
+    time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('index'))
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        cur = conn.cursor()
+        cur.execute("INSERT INTO bookings VALUES (?, ?, ?, ?)", (slot_no, owner, vehicle, time))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "success"})
+    except:
+        return jsonify({"status": "error", "message": "Slot already booked"}), 400
 
-if __name__ == "__main__":
+if __name__ == '__main__':
+    init_db()
     app.run(debug=True)
