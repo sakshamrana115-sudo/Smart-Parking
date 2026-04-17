@@ -53,7 +53,7 @@ if not st.session_state.logged_in:
             st.rerun()
     st.stop()
 
-# --- SHARED UI ---
+# --- LOGOUT ---
 if st.sidebar.button("🚪 Log Out"):
     st.session_state.clear()
     st.rerun()
@@ -63,53 +63,81 @@ booked_slots = booked_df['slot_no'].tolist()
 
 # ================= USER POV =================
 if st.session_state.role == "user":
-    st.title("🚗 Customer Portal")
-    cols = st.columns(4)
-    for i in range(1, TOTAL_SLOTS + 1):
-        with cols[(i-1)%4]:
-            if i in booked_slots: st.error(f"Slot {i}\n\nOccupied")
-            else:
-                st.success(f"Slot {i}\n\nAvailable")
-                if st.button(f"Book {i}", key=f"b{i}"): st.session_state.booking_slot = i
+    user_menu = st.sidebar.radio("User Menu", ["Book a Slot", "My Booking Summary"])
     
-    if st.session_state.booking_slot:
-        with st.form("bk"):
-            name, vno = st.text_input("Name"), st.text_input("Vehicle").upper()
-            if st.form_submit_button("Confirm") and name and vno:
-                run_query("INSERT INTO bookings VALUES (?,?,?,?)", (st.session_state.booking_slot, name, vno, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                st.session_state.booking_slot = None
-                st.rerun()
+    if user_menu == "Book a Slot":
+        st.title("🚗 Customer Portal - Book Your Slot")
+        cols = st.columns(4)
+        for i in range(1, TOTAL_SLOTS + 1):
+            with cols[(i-1)%4]:
+                if i in booked_slots: st.error(f"Slot {i}\n\nOccupied")
+                else:
+                    st.success(f"Slot {i}\n\nAvailable")
+                    if st.button(f"Book {i}", key=f"ub_{i}"): st.session_state.booking_slot = i
+        
+        if st.session_state.booking_slot:
+            with st.form("user_bk"):
+                st.write(f"### Enter Details for Slot {st.session_state.booking_slot}")
+                name = st.text_input("Full Name")
+                vno = st.text_input("Vehicle Number").upper()
+                if st.form_submit_button("Confirm Booking"):
+                    if name and vno:
+                        run_query("INSERT INTO bookings VALUES (?,?,?,?)", (st.session_state.booking_slot, name, vno, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                        st.session_state.booking_slot = None
+                        st.success("Slot Booked! Check 'My Booking Summary' for details.")
+                        st.rerun()
+                    else: st.warning("Please fill all details.")
+
+    elif user_menu == "My Booking Summary":
+        st.title("📄 My Booking & Payment")
+        search_v = st.text_input("Enter your Vehicle Number to find booking").upper()
+        if search_v:
+            user_res = booked_df[booked_df['vehicle_no'] == search_v]
+            if not user_res.empty:
+                st.info("### Booking Details Found")
+                slot_id = user_res['slot_no'].iloc[0]
+                checkin = user_res['checkin_time'].iloc[0]
+                
+                # Calculation logic
+                entry_dt = datetime.strptime(checkin, "%Y-%m-%d %H:%M:%S")
+                duration = datetime.now() - entry_dt
+                hrs = max(1, duration.seconds // 3600)
+                total_bill = hrs * HOURLY_RATE
+                
+                # Layout
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Slot Number", f"#{slot_id}")
+                c2.metric("Check-in Time", checkin.split()[1])
+                c3.metric("Current Bill", f"₹{total_bill}")
+                
+                st.write("---")
+                if st.button("💳 Pay & Unbook Slot"):
+                    # Process removal and history log
+                    run_query("DELETE FROM bookings WHERE slot_no=?", (int(slot_id),))
+                    run_query("INSERT INTO history (slot_no, amount, paid_at) VALUES (?,?,?)", 
+                              (int(slot_id), total_bill, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                    st.balloons()
+                    st.success(f"Payment Successful! Slot {slot_id} is now vacant. Thank you!")
+                    st.rerun()
+            else:
+                st.error("No active booking found for this vehicle number.")
 
 # ================= ADMIN POV =================
 else:
     st.sidebar.title(f"Admin: {st.session_state.current_user}")
-    menu = st.sidebar.radio("Menu", ["Monitor", "Billing", "Reports", "Manage Admins"])
+    admin_menu = st.sidebar.radio("Admin Menu", ["Monitor", "Billing", "Reports", "Manage Admins"])
 
-    if menu == "Monitor":
-        st.title("📊 Live View")
+    if admin_menu == "Monitor":
+        st.title("📊 Live Parking Monitor")
         cols = st.columns(4)
         for i in range(1, TOTAL_SLOTS + 1):
             with cols[(i-1)%4]:
                 if i in booked_slots:
                     d = booked_df[booked_df['slot_no']==i].iloc[0]
-                    st.error(f"Slot {i}\n\n{d['vehicle_no']}")
+                    st.error(f"Slot {i}\n\n{d['vehicle_no']}\n({d['owner_name']})")
                 else: st.success(f"Slot {i}\n\nFree")
 
-    elif menu == "Billing":
-        st.title("💸 Checkout")
-        v = st.text_input("Search Vehicle").upper()
-        res = booked_df[booked_df['vehicle_no'].str.contains(v)] if v else None
-        if res is not None and not res.empty:
-            st.table(res)
-            if st.button("Process Exit"):
-                s_id = int(res['slot_no'].iloc[0])
-                entry = datetime.strptime(res['checkin_time'].iloc[0], "%Y-%m-%d %H:%M:%S")
-                hrs = max(1, (datetime.now() - entry).seconds // 3600)
-                run_query("DELETE FROM bookings WHERE slot_no=?", (s_id,))
-                run_query("INSERT INTO history (slot_no, amount, paid_at) VALUES (?,?,?)", (s_id, hrs*HOURLY_RATE, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-                st.success(f"Bill: ₹{hrs*HOURLY_RATE}"); st.rerun()
-
-    elif menu == "Manage Admins":
+    elif admin_menu == "Manage Admins":
         st.title("👥 Admin Settings")
         with st.form("new_ad"):
             nu, np = st.text_input("New Username"), st.text_input("New Password", type="password")
@@ -120,8 +148,20 @@ else:
                 except: st.error("Exists!")
         st.table(pd.read_sql("SELECT username FROM admins", sqlite3.connect(DB_NAME)))
 
-    elif menu == "Reports":
-        st.title("📈 History")
+    elif admin_menu == "Reports":
+        st.title("📈 Revenue History")
         dfh = pd.read_sql("SELECT * FROM history", sqlite3.connect(DB_NAME))
-        st.metric("Total Revenue", f"₹{dfh['amount'].sum() if not dfh.empty else 0}")
-        st.dataframe(dfh)
+        st.metric("Total Revenue Collected", f"₹{dfh['amount'].sum() if not dfh.empty else 0}")
+        st.dataframe(dfh, use_container_width=True)
+    
+    elif admin_menu == "Billing":
+        st.title("💸 Admin Checkout Tool")
+        # (Optional: Admin can also manually checkout from here)
+        v = st.text_input("Search Vehicle").upper()
+        res = booked_df[booked_df['vehicle_no'].str.contains(v)] if v else None
+        if res is not None and not res.empty:
+            st.table(res)
+            if st.button("Process Manual Exit"):
+                s_id = int(res['slot_no'].iloc[0])
+                run_query("DELETE FROM bookings WHERE slot_no=?", (s_id,))
+                st.success("Slot Cleared!"); st.rerun()
