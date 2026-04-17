@@ -1,49 +1,76 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>Smart Parking Pro</title>
+    <meta charset="UTF-8">
+    <title>Smart Parking Pro Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
-<body onload="refreshGrid()">
+<body>
+
     <div class="sidebar">
-        <h2>🅿️ Parking Panel</h2>
-        <div id="stats-card" class="card">
-            <p>Total Revenue: <span id="revenue">₹0</span></p>
-            <p>Available: <span id="avail-count">12</span></p>
+        <div class="logo">🅿️ Parking Pro</div>
+        <nav>
+            <a href="#" class="active"><i class="fas fa-th-large"></i> Dashboard</a>
+            <a href="#"><i class="fas fa-search"></i> Search Vehicle</a>
+            <a href="#"><i class="fas fa-file-invoice-dollar"></i> Revenue Reports</a>
+            <a href="#"><i class="fas fa-user-shield"></i> Admin Settings</a>
+            <a href="#" onclick="window.print()"><i class="fas fa-print"></i> Print Ticket</a>
+        </nav>
+        <div class="user-info">
+            <p>Admin: Babu</p>
+            <button class="logout-btn">Logout</button>
         </div>
-        <button onclick="window.print()">Print Report</button>
     </div>
 
     <div class="main-content">
-        <div id="slot-grid" class="grid"></div>
+        <header>
+            <h1>Real-Time Slot Overview</h1>
+            <div class="quick-stats">
+                <div class="stat-box">Total Slots: <strong>12</strong></div>
+                <div id="avail-stat" class="stat-box green">Available: <strong>--</strong></div>
+                <div id="rev-stat" class="stat-box yellow">Revenue: <strong>₹0</strong></div>
+            </div>
+        </header>
+
+        <div class="search-bar">
+            <input type="text" id="search" placeholder="Type Vehicle Number to find slot..." onkeyup="searchVehicle()">
+        </div>
+
+        <div id="slot-grid" class="grid">
+            </div>
     </div>
 
     <div id="bookingModal" class="modal">
         <div class="modal-content">
-            <h3>Book Slot #<span id="target-slot"></span></h3>
+            <h2><i class="fas fa-key"></i> New Booking</h2>
+            <hr>
+            <p>Assigning Slot: <span id="slot-id-display" style="font-weight: bold; color: #facc15;"></span></p>
             <input type="text" id="owner" placeholder="Owner Name">
-            <input type="text" id="v_no" placeholder="Vehicle Number (e.g. DL 1C 1234)">
-            <button class="btn-confirm" onclick="submitBooking()">Confirm & Generate QR</button>
+            <input type="text" id="vehicle" placeholder="Vehicle No (e.g. MH12 AB 1234)">
+            <div class="modal-actions">
+                <button class="cancel" onclick="closeModal()">Cancel</button>
+                <button class="confirm" onclick="saveBooking()">Book Now</button>
+            </div>
         </div>
     </div>
-</body>
-<script>
-    // Frontend logic jo Python API se baat karegi
-    async function refreshGrid() {
-        const res = await axios.get('/api/slots');
-        const booked = res.data;
-        const grid = document.getElementById('slot-grid');
-        grid.innerHTML = '';
 
-        for(let i=1; i<=12; i++) {
-            const isBooked = booked[i];
-            grid.innerHTML += `
-                <div class="slot ${isBooked ? 'booked' : 'free'}" onclick="handleSlot(${i}, ${JSON.stringify(isBooked)})">
-                    Slot ${i} <br> ${isBooked ? isBooked.vehicle : 'FREE'}
-                </div>
-            `;
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        // JS Logic to manage everything
+        function searchVehicle() {
+            let input = document.getElementById('search').value.toUpperCase();
+            let slots = document.querySelectorAll('.slot');
+            slots.forEach(s => {
+                if (s.innerText.includes(input) && input !== "") {
+                    s.style.border = "3px solid #facc15";
+                    s.style.transform = "scale(1.05)";
+                } else {
+                    s.style.border = "none";
+                    s.style.transform = "scale(1)";
+                }
+            });
         }
-    }
-</script>
+    </script>
+</body>
 </html>
