@@ -31,18 +31,17 @@ def get_booked_slots():
 
 init_db()
 
-# --- SESSION STATE INITIALIZATION ---
+# --- SESSION STATE ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.role = None
 if 'booking_slot' not in st.session_state:
     st.session_state.booking_slot = None
 
-# --- LOGIN INTERFACE ---
+# --- LOGIN SCREEN ---
 if not st.session_state.logged_in:
     st.title("🔐 Smart Parking Login")
     col1, col2 = st.columns(2)
-    
     with col1:
         st.info("### 👨‍💼 Admin Login")
         admin_user = st.text_input("Admin Username")
@@ -52,12 +51,9 @@ if not st.session_state.logged_in:
                 st.session_state.logged_in = True
                 st.session_state.role = "admin"
                 st.rerun()
-            else:
-                st.error("Invalid Admin Credentials")
-
+            else: st.error("Invalid Credentials")
     with col2:
         st.success("### 🚗 User Access")
-        st.write("Click below to book your parking slot.")
         if st.button("Enter as User"):
             st.session_state.logged_in = True
             st.session_state.role = "user"
@@ -66,25 +62,21 @@ if not st.session_state.logged_in:
 
 # --- LOGOUT ---
 if st.sidebar.button("🚪 Log Out"):
-    st.session_state.logged_in = False
-    st.session_state.role = None
-    st.session_state.booking_slot = None
+    st.session_state.clear()
     st.rerun()
 
 # Fetch latest data
 booked_df = get_booked_slots()
 booked_slots = booked_df['slot_no'].tolist()
 
-# Helper function for button click
-def set_booking_slot(slot_id):
+def set_slot(slot_id):
     st.session_state.booking_slot = slot_id
 
-# ================= USER POV (FIXED BUTTONS) =================
+# ================= USER POV (FIXED FORM) =================
 if st.session_state.role == "user":
     st.title("🚗 Customer Booking Portal")
-    st.info("Select an available slot to park your vehicle.")
     
-    # Grid Layout
+    # Grid
     cols = st.columns(4)
     for i in range(1, TOTAL_SLOTS + 1):
         with cols[(i - 1) % 4]:
@@ -93,47 +85,55 @@ if st.session_state.role == "user":
                 st.button("Occupied", key=f"occ_{i}", disabled=True)
             else:
                 st.success(f"Slot {i} \n\n AVAILABLE")
-                # Ye button ab session state update karega
-                st.button(f"Book Slot {i}", key=f"user_slot_{i}", on_click=set_booking_slot, args=(i,))
+                st.button(f"Book Slot {i}", key=f"btn_{i}", on_click=set_slot, args=(i,))
 
-    # AGAR USER NE SLOT SELECT KIYA HAI
+    # Booking Form Area
     if st.session_state.booking_slot:
         st.divider()
-        st.markdown(f"### 📝 Booking Details for **Slot {st.session_state.booking_slot}**")
-        
-        with st.form(key='user_booking_form'):
-            u_name = st.text_input("Your Full Name")
-            u_vno = st.text_input("Vehicle Number (e.g., DL 1C 1234)").upper()
-            
-            c1, c2 = st.columns([1, 4])
-            with c1:
-                if st.form_submit_button("Confirm"):
-                    if u_name and u_vno:
-                        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        conn = sqlite3.connect(DB_NAME)
-                        cur = conn.cursor()
-                        try:
-                            cur.execute("INSERT INTO bookings VALUES (?, ?, ?, ?)", 
-                                        (st.session_state.booking_slot, u_name, u_vno, now))
-                            conn.commit()
-                            st.success(f"✅ Slot {st.session_state.booking_slot} is now yours!")
-                            st.session_state.booking_slot = None # Reset
-                            st.rerun()
-                        except:
-                            st.error("This slot was just taken! Please pick another.")
-                        finally:
-                            conn.close()
-                    else:
-                        st.warning("Please fill in your name and vehicle number.")
-            with c2:
-                if st.form_submit_button("Cancel"):
+        # Hum ek placeholder banayenge jise clear kiya ja sake
+        form_container = st.container()
+        with form_container:
+            st.markdown(f"### 📝 Booking Details for **Slot {st.session_state.booking_slot}**")
+            with st.form(key='user_booking_form', clear_on_submit=True):
+                u_name = st.text_input("Your Full Name")
+                u_vno = st.text_input("Vehicle Number").upper()
+                
+                c1, c2 = st.columns([1, 4])
+                with c1:
+                    submit = st.form_submit_button("Confirm")
+                with c2:
+                    cancel = st.form_submit_button("Cancel")
+
+                if cancel:
                     st.session_state.booking_slot = None
                     st.rerun()
 
+                if submit:
+                    if u_name and u_vno:
+                        # Re-check if slot is still free
+                        check_df = get_booked_slots()
+                        if st.session_state.booking_slot not in check_df['slot_no'].tolist():
+                            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            conn = sqlite3.connect(DB_NAME)
+                            cur = conn.cursor()
+                            cur.execute("INSERT INTO bookings VALUES (?, ?, ?, ?)", 
+                                        (st.session_state.booking_slot, u_name, u_vno, now))
+                            conn.commit()
+                            conn.close()
+                            
+                            # Success! Clear state and refresh
+                            st.session_state.booking_slot = None
+                            st.toast("✅ Slot Booked Successfully!")
+                            st.rerun()
+                        else:
+                            st.error("🚨 Oops! This slot was just taken by someone else.")
+                    else:
+                        st.warning("⚠️ Please enter all details.")
+
 # ================= ADMIN POV =================
 elif st.session_state.role == "admin":
-    st.sidebar.title(f"Admin: {st.session_state.role}")
-    menu = st.sidebar.radio("Go to:", ["Monitor", "Billing", "History"])
+    st.sidebar.title("🛡️ Admin Panel")
+    menu = st.sidebar.radio("Navigation", ["Monitor", "Billing", "History"])
 
     if menu == "Monitor":
         st.title("📊 Real-Time Monitor")
@@ -147,36 +147,34 @@ elif st.session_state.role == "admin":
                     st.success(f"Slot {i}\n\nEMPTY")
 
     elif menu == "Billing":
-        st.title("💸 Checkout & Payments")
-        search = st.text_input("Enter Vehicle No to Exit").upper()
+        st.title("💸 Checkout")
+        search = st.text_input("Search Vehicle Number").upper()
         if search:
             res = booked_df[booked_df['vehicle_no'].str.contains(search)]
             if not res.empty:
                 st.table(res)
-                slot_id = res['slot_no'].values[0]
-                if st.button(f"Process Checkout for Slot {slot_id}"):
-                    # Calculate Billing
-                    entry_time = datetime.strptime(res['checkin_time'].values[0], "%Y-%m-%d %H:%M:%S")
-                    stay_hours = max(1, (datetime.now() - entry_time).seconds // 3600)
-                    total_amt = stay_hours * HOURLY_RATE
+                if st.button("Process Checkout"):
+                    s_id = res['slot_no'].values[0]
+                    # Logic (Price calc + history insert)
+                    c_time = datetime.strptime(res['checkin_time'].values[0], "%Y-%m-%d %H:%M:%S")
+                    hours = max(1, (datetime.now() - c_time).seconds // 3600)
+                    bill = hours * HOURLY_RATE
                     
                     conn = sqlite3.connect(DB_NAME)
                     cur = conn.cursor()
-                    cur.execute("DELETE FROM bookings WHERE slot_no=?", (int(slot_id),))
+                    cur.execute("DELETE FROM bookings WHERE slot_no=?", (int(s_id),))
                     cur.execute("INSERT INTO history (slot_no, amount, paid_at) VALUES (?,?,?)", 
-                                (int(slot_id), total_amt, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+                                (int(s_id), bill, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
                     conn.commit()
                     conn.close()
-                    st.balloons()
-                    st.success(f"Payment Received: ₹{total_amt}. Slot is now FREE!")
+                    st.success(f"Done! Bill: ₹{bill}")
                     st.rerun()
-            else:
-                st.info("No active booking found.")
+            else: st.info("Not found.")
 
     elif menu == "History":
-        st.title("📈 Revenue & History")
+        st.title("📊 Financials")
         conn = sqlite3.connect(DB_NAME)
-        history_df = pd.read_sql_query("SELECT * FROM history ORDER BY id DESC", conn)
-        st.metric("Total Earnings", f"₹{history_df['amount'].sum() if not history_df.empty else 0}")
-        st.dataframe(history_df, use_container_width=True)
+        h_df = pd.read_sql_query("SELECT * FROM history ORDER BY id DESC", conn)
+        st.metric("Revenue", f"₹{h_df['amount'].sum() if not h_df.empty else 0}")
+        st.dataframe(h_df)
         conn.close()
