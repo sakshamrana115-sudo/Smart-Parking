@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Parking System</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body>
+    <div id="login-screen" class="card">
+        <h2>Parking System Login</h2>
+        <input type="text" id="username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
+        <button onclick="login()">Login</button>
+    </div>
+
+    <div id="dashboard" class="hidden">
+        <header>
+            <h2 id="welcome">Dashboard</h2>
+            <button class="danger" onclick="logout()">Logout</button>
+        </header>
+
+        <div class="stats">
+            <p>Total Slots: 12</p>
+            <p>Price: ₹20/hr</p>
+        </div>
+
+        <div id="slot-grid" class="grid">
+            </div>
+    </div>
+
+    <div id="modal" class="modal hidden">
+        <div class="modal-content">
+            <h3>Book Slot <span id="selected-slot"></span></h3>
+            <input type="text" id="owner-name" placeholder="Owner Name">
+            <input type="text" id="vehicle-no" placeholder="Vehicle Number">
+            <button onclick="confirmBooking()">Confirm Booking</button>
+            <button class="secondary" onclick="closeModal()">Cancel</button>
+            <div id="qrcode"></div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
