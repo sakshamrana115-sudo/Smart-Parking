@@ -1,46 +1,49 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Parking System</title>
-    <link rel="stylesheet" href="style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <title>Smart Parking Pro</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
-<body>
-    <div id="login-screen" class="card">
-        <h2>Parking System Login</h2>
-        <input type="text" id="username" placeholder="Username">
-        <input type="password" id="password" placeholder="Password">
-        <button onclick="login()">Login</button>
-    </div>
-
-    <div id="dashboard" class="hidden">
-        <header>
-            <h2 id="welcome">Dashboard</h2>
-            <button class="danger" onclick="logout()">Logout</button>
-        </header>
-
-        <div class="stats">
-            <p>Total Slots: 12</p>
-            <p>Price: ₹20/hr</p>
+<body onload="refreshGrid()">
+    <div class="sidebar">
+        <h2>🅿️ Parking Panel</h2>
+        <div id="stats-card" class="card">
+            <p>Total Revenue: <span id="revenue">₹0</span></p>
+            <p>Available: <span id="avail-count">12</span></p>
         </div>
-
-        <div id="slot-grid" class="grid">
-            </div>
+        <button onclick="window.print()">Print Report</button>
     </div>
 
-    <div id="modal" class="modal hidden">
+    <div class="main-content">
+        <div id="slot-grid" class="grid"></div>
+    </div>
+
+    <div id="bookingModal" class="modal">
         <div class="modal-content">
-            <h3>Book Slot <span id="selected-slot"></span></h3>
-            <input type="text" id="owner-name" placeholder="Owner Name">
-            <input type="text" id="vehicle-no" placeholder="Vehicle Number">
-            <button onclick="confirmBooking()">Confirm Booking</button>
-            <button class="secondary" onclick="closeModal()">Cancel</button>
-            <div id="qrcode"></div>
+            <h3>Book Slot #<span id="target-slot"></span></h3>
+            <input type="text" id="owner" placeholder="Owner Name">
+            <input type="text" id="v_no" placeholder="Vehicle Number (e.g. DL 1C 1234)">
+            <button class="btn-confirm" onclick="submitBooking()">Confirm & Generate QR</button>
         </div>
     </div>
-
-    <script src="script.js"></script>
 </body>
+<script>
+    // Frontend logic jo Python API se baat karegi
+    async function refreshGrid() {
+        const res = await axios.get('/api/slots');
+        const booked = res.data;
+        const grid = document.getElementById('slot-grid');
+        grid.innerHTML = '';
+
+        for(let i=1; i<=12; i++) {
+            const isBooked = booked[i];
+            grid.innerHTML += `
+                <div class="slot ${isBooked ? 'booked' : 'free'}" onclick="handleSlot(${i}, ${JSON.stringify(isBooked)})">
+                    Slot ${i} <br> ${isBooked ? isBooked.vehicle : 'FREE'}
+                </div>
+            `;
+        }
+    }
+</script>
 </html>
